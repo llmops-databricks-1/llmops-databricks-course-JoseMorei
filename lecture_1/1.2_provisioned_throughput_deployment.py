@@ -1,0 +1,395 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Lecture 1.2: Provisioned Throughput Deployment
+# MAGIC
+# MAGIC ## Topics Covered:
+# MAGIC - Understanding provisioned throughput
+# MAGIC - When to use provisioned throughput vs Foundation Model APIs
+# MAGIC - Configuration and optimization
+# MAGIC - Monitoring and scaling
+
+# MAGIC **Provisioned Throughput** is for:
+# MAGIC - Your own fine-tuned models
+# MAGIC - Custom models registered in Unity Catalog
+# MAGIC - Models that need dedicated capacity
+
+# COMMAND ----------
+
+# MAGIC %pip install databricks-sdk openai
+
+# COMMAND ----------
+
+# MAGIC %restart_python
+
+# COMMAND ----------
+
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.serving import (
+    EndpointCoreConfigInput,
+    ServedEntityInput,
+    ServedEntitySpec,
+    EndpointStateReady,
+    TrafficConfig,
+    Route
+)
+import time
+from openai import OpenAI
+
+w = WorkspaceClient()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1. Understanding Provisioned Throughput
+# MAGIC
+# MAGIC ### Model Units and Throughput
+# MAGIC
+# MAGIC - **Model Unit**: A unit of compute capacity for serving models
+# MAGIC - **Throughput**: Measured in tokens per second
+# MAGIC - **Example**: For DeepSeek/Llama models:
+# MAGIC   - 1 model unit ≈ 65 tokens/second
+# MAGIC   - 50 model units ≈ 3,250 tokens/second
+# MAGIC
+# MAGIC ### When to Use Provisioned Throughput
+# MAGIC
+# MAGIC 1. High-volume production workloads
+# MAGIC 2. Latency-sensitive applications
+# MAGIC 3. Cost optimization for predictable loads
+# MAGIC 4. Fine-tuned model deployment
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Advanced Configuration Parameters
+# MAGIC
+# MAGIC ### Available Parameters for Provisioned Throughput:
+# MAGIC
+# MAGIC #### Core Parameters:
+# MAGIC - **workload_size**: `Small`, `Medium`, `Large` - Compute capacity per instance
+# MAGIC - **scale_to_zero_enabled**: `True`/`False` - Auto-scale to zero when idle
+# MAGIC - **min_provisioned_throughput**: Minimum model units (must be 0 if scale_to_zero enabled)
+# MAGIC - **max_provisioned_throughput**: Maximum model units for auto-scaling
+# MAGIC
+# MAGIC #### Monitoring & Observability:
+# MAGIC - **Inference Tables**: Log all requests/responses to Delta table
+# MAGIC   - Must be enabled via Databricks UI (Serving → Endpoint → Configuration)
+# MAGIC   - Or via REST API (not available in SDK 0.78.0)
+# MAGIC   - Creates table: `{catalog}.{schema}.{endpoint_name}_payload`
+# MAGIC   - Includes: request_id, timestamp, request, response, status_code, latency
+# MAGIC   - Useful for: debugging, auditing, model monitoring, fine-tuning data
+# MAGIC
+# MAGIC #### Safety & Compliance:
+# MAGIC - **guardrails**: Configure input/output validation and filtering
+# MAGIC   - PII detection and redaction
+# MAGIC   - Content filtering (toxicity, hate speech, etc.)
+# MAGIC   - Custom validation rules
+# MAGIC
+# MAGIC #### Environment Variables:
+# MAGIC - **environment_vars**: Pass custom environment variables to the model
+# MAGIC   - API keys for external services
+# MAGIC   - Feature flags
+# MAGIC   - Custom configuration
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Deploying DeepSeek R1 with Provisioned Throughput
+# MAGIC
+# MAGIC **Note**: This example shows how to deploy DeepSeek R1. 
+# MAGIC You can adapt this for other models like Llama 3.1, Mistral, etc.
+
+# COMMAND ----------
+
+# Configuration - Using a real model from system.ai catalog
+ENDPOINT_NAME = "llama-3-2-1b-provisioned"  # Your endpoint name
+MODEL_NAME = "system.ai.llama_v3_2_1b_instruct"  # Model from system.ai catalog
+WORKLOAD_SIZE = "Small"  # Options: Small, Medium, Large
+SCALE_TO_ZERO = True  # Set to True to save costs when not in use
+MIN_PROVISIONED_THROUGHPUT = 0  # Must be 0 when scale_to_zero is enabled
+MAX_PROVISIONED_THROUGHPUT = 20  # Max capacity for auto-scaling
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Step 1: Check if endpoint exists
+
+# COMMAND ----------
+
+def endpoint_exists(endpoint_name: str) -> bool:
+    """Check if serving endpoint exists."""
+    try:
+        w.serving_endpoints.get(endpoint_name)
+        return True
+    except Exception:
+        return False
+
+if endpoint_exists(ENDPOINT_NAME):
+    print(f"Endpoint '{ENDPOINT_NAME}' already exists")
+    print("To update, delete the existing endpoint first or use a different name")
+else:
+    print(f"Endpoint '{ENDPOINT_NAME}' does not exist. Ready to create.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Step 2: Create the endpoint with provisioned throughput
+# MAGIC
+# MAGIC **Important Notes:**
+# MAGIC - Provisioned throughput endpoints take 15-30 minutes to deploy
+# MAGIC - You'll be charged for the provisioned capacity while it's running
+# MAGIC - Make sure to delete the endpoint when not in use for the course
+
+# COMMAND ----------
+
+# Create endpoint configuration (basic)
+
+endpoint_config = EndpointCoreConfigInput(
+    name=ENDPOINT_NAME,
+    served_entities=[
+        ServedEntityInput(
+            entity_name=MODEL_NAME,
+            entity_version="1",
+            workload_size=WORKLOAD_SIZE,
+            scale_to_zero_enabled=SCALE_TO_ZERO,
+            min_provisioned_throughput=MIN_PROVISIONED_THROUGHPUT,
+            max_provisioned_throughput=MAX_PROVISIONED_THROUGHPUT
+        )
+    ]
+)
+
+# Create the endpoint
+print(f"Creating endpoint '{ENDPOINT_NAME}'...")
+print("This will take 15-30 minutes...")
+
+w.serving_endpoints.create(
+    name=ENDPOINT_NAME,
+    config=endpoint_config
+)
+
+print("Endpoint creation initiated!")
+print("Remember: Provisioned throughput incurs costs while running!")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Step 3: Monitor endpoint deployment
+
+# COMMAND ----------
+
+def wait_for_endpoint(endpoint_name: str, timeout_minutes: int = 30):
+    """Wait for endpoint to be ready."""
+    start_time = time.time()
+    timeout_seconds = timeout_minutes * 60
+    
+    while True:
+        try:
+            endpoint = w.serving_endpoints.get(endpoint_name)
+            config_state = endpoint.state.config_update
+            ready_state = endpoint.state.ready
+            
+            print(f"Status: config_update={config_state}, ready={ready_state}")
+            
+            # Check for failure state
+            if hasattr(endpoint.state, 'config_update_message'):
+                msg = endpoint.state.config_update_message
+                if msg:
+                    print(f"Message: {msg}")
+            
+            # Endpoint is ready when config is NOT_UPDATING and ready state is READY
+            if config_state.value == "NOT_UPDATING" and ready_state.value == "READY":
+                print(f"✅ Endpoint '{endpoint_name}' is ready!")
+                return True
+            
+            # Check if endpoint creation failed
+            if config_state.value == "UPDATE_FAILED":
+                print(f"❌ Endpoint creation failed!")
+                if hasattr(endpoint.state, 'config_update_message'):
+                    print(f"Error: {endpoint.state.config_update_message}")
+                return False
+            
+            if time.time() - start_time > timeout_seconds:
+                print(f"⏱️ Timeout waiting for endpoint")
+                return False
+            
+            time.sleep(30)  # Check every 30 seconds
+            
+        except Exception as e:
+            print(f"❌ Error checking endpoint: {e}")
+            print("Tip: Check the Databricks UI → Machine Learning → Serving for detailed error messages")
+            return False
+
+# Uncomment to monitor deployment
+wait_for_endpoint(ENDPOINT_NAME)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Calling the Provisioned Endpoint
+
+# COMMAND ----------
+
+# Example: Call the endpoint once it's ready
+
+client = OpenAI(
+    api_key=w.config.token,
+    base_url=f"{w.config.host}/serving-endpoints"
+)
+
+response = client.chat.completions.create(
+    model=ENDPOINT_NAME,
+    messages=[
+        {"role": "system", "content": "You are a helpful AI assistant."},
+        {"role": "user", "content": "Explain the benefits of provisioned throughput for LLMs."}
+    ],
+    max_tokens=500,
+    temperature=0.7
+)
+
+print("Response:")
+print(response.choices[0].message.content)
+print(f"\nTokens used: {response.usage.total_tokens}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4. Performance Monitoring
+
+# COMMAND ----------
+
+def get_endpoint_metrics(endpoint_name: str):
+    """Get endpoint metrics and status."""
+    try:
+        endpoint = w.serving_endpoints.get(endpoint_name)
+        
+        print(f"Endpoint: {endpoint_name}")
+        print(f"State: {endpoint.state.config_update}")
+        print(f"\nConfiguration:")
+        
+        for entity in endpoint.config.served_entities:
+            print(f"  Model: {entity.entity_name}")
+            print(f"  Workload Size: {entity.workload_size}")
+            print(f"  Min Throughput: {entity.min_provisioned_throughput} model units")
+            print(f"  Max Throughput: {entity.max_provisioned_throughput} model units")
+            print(f"  Scale to Zero: {entity.scale_to_zero_enabled}")
+        
+        return endpoint
+    except Exception as e:
+        print(f"Error getting metrics: {e}")
+        return None
+
+get_endpoint_metrics(ENDPOINT_NAME)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5. Cost Estimation
+
+# COMMAND ----------
+
+def estimate_provisioned_cost(
+    model_units: int,
+    hours_per_day: int,
+    days: int,
+    cost_per_unit_hour: float = 2.0  # Approximate cost
+):
+    """Estimate cost for provisioned throughput."""
+    total_hours = hours_per_day * days
+    total_cost = model_units * total_hours * cost_per_unit_hour
+    
+    print(f"Cost Estimation:")
+    print(f"  Model Units: {model_units}")
+    print(f"  Hours per day: {hours_per_day}")
+    print(f"  Days: {days}")
+    print(f"  Total hours: {total_hours}")
+    print(f"  Cost per unit-hour: ${cost_per_unit_hour}")
+    print(f"  Total cost: ${total_cost:.2f}")
+    
+    # Calculate throughput
+    tokens_per_second = model_units * 65
+    total_tokens = tokens_per_second * 3600 * total_hours
+    cost_per_million_tokens = (total_cost / total_tokens) * 1_000_000
+    
+    print(f"\n  Throughput: {tokens_per_second:,} tokens/second")
+    print(f"  Total tokens: {total_tokens:,}")
+    print(f"  Effective cost: ${cost_per_million_tokens:.2f} per 1M tokens")
+    
+    return total_cost
+
+# Example: 50 model units, 8 hours/day, 30 days
+estimate_provisioned_cost(50, 8, 30)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 6. Scaling Configuration
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Auto-scaling
+# MAGIC
+# MAGIC Provisioned throughput supports auto-scaling between min and max model units:
+# MAGIC
+# MAGIC - **Min Provisioned Throughput**: Always-on capacity
+# MAGIC - **Max Provisioned Throughput**: Maximum capacity for burst traffic
+# MAGIC - **Scaling Trigger**: Based on request queue depth and latency
+# MAGIC
+# MAGIC ### Example Scaling Scenarios:
+# MAGIC
+# MAGIC 1. **Steady Load**: Min=50, Max=50 (no auto-scaling)
+# MAGIC 2. **Variable Load**: Min=20, Max=100 (scales based on demand)
+# MAGIC 3. **Cost Optimization**: Min=10, Max=200 (low baseline, high burst)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Fine-tuning with Provisioned Throughput
+# MAGIC
+# MAGIC Provisioned throughput endpoints can serve fine-tuned models:
+# MAGIC
+# MAGIC 1. Fine-tune your model using Databricks or Hugging Face
+# MAGIC 2. Register the fine-tuned model in Unity Catalog
+# MAGIC 3. Deploy with provisioned throughput
+# MAGIC 4. Benefit from both customization and performance
+# MAGIC
+# MAGIC **Resources:**
+# MAGIC - [Fine-tuning Guide](https://docs.databricks.com/machine-learning/train-model/huggingface/fine-tune-model.html)
+# MAGIC - [DeepSeek R1 Deployment Guide](https://medium.com/@apukumargiri1/deploying-deepseek-r1-on-databricks-a-comprehensive-guide-095a8000ae94)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. Cleanup
+# MAGIC
+# MAGIC **Important**: Delete the endpoint when not in use to avoid charges!
+
+# COMMAND ----------
+
+# Uncomment to delete the endpoint
+"""
+def delete_endpoint(endpoint_name: str):
+    try:
+        w.serving_endpoints.delete(endpoint_name)
+        print(f"✅ Endpoint '{endpoint_name}' deleted successfully")
+    except Exception as e:
+        print(f"Error deleting endpoint: {e}")
+
+# delete_endpoint(ENDPOINT_NAME)
+"""
+
+print("⚠️ Remember to delete your provisioned endpoint when done!")
+print("Uncomment the code above to delete the endpoint.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Summary
+# MAGIC
+# MAGIC In this notebook, we learned:
+# MAGIC
+# MAGIC 1. ✅ How provisioned throughput works
+# MAGIC 2. ✅ How to deploy models with provisioned throughput
+# MAGIC 3. ✅ Cost estimation and optimization
+# MAGIC 4. ✅ Performance monitoring
+# MAGIC 5. ✅ Scaling configuration
+# MAGIC 6. ✅ Fine-tuning capabilities
+# MAGIC
