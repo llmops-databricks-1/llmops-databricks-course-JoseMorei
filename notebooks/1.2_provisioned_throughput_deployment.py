@@ -208,10 +208,12 @@ wait_for_endpoint(ENDPOINT_NAME)
 # COMMAND ----------
 
 # Example: Call the endpoint once it's ready
+host = w.config.host
+token = w.tokens.create(lifetime_seconds=1200).token_value
 
 client = OpenAI(
-    api_key=w.config.token,
-    base_url=f"{w.config.host}/serving-endpoints"
+    api_key=token,
+    base_url=f"{host}/serving-endpoints"
 )
 
 response = client.chat.completions.create(
