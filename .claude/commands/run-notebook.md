@@ -4,9 +4,17 @@ The argument is the notebook path relative to the repo root (e.g. `notebooks/hel
 
 ## Steps
 
+<<<<<<< HEAD
 ### 1. Determine the job resource name
 
 Derive a job resource key from the notebook filename: take the filename without extension, replace hyphens with underscores, append `_job`.
+=======
+### 1. Find or derive the job resource key
+
+First, scan all `resources/*.yml` files for any job whose `notebook_path` matches the target notebook. If a match is found, use that file's resource key and skip to step 5.
+
+If no match is found, derive a resource key from the notebook filename: take the filename without extension, replace hyphens with underscores, append `_job`. Ignore leading numbers in the notebook name.
+>>>>>>> source/main
 
 Example: `notebooks/hello_world.py` → resource key `hello_world_job`.
 
@@ -37,7 +45,11 @@ resources:
     <resource_key>:
       name: <job_display_name>
       tags:
+<<<<<<< HEAD
         project_name: "brickkit"
+=======
+        project_name: "llmops_course"
+>>>>>>> source/main
 
       environments:
         - environment_key: default

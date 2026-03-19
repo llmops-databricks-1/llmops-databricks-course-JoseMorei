@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <h1 align="center">
 LLMOps Course on Databricks
 </h1>
@@ -26,3 +27,6 @@ uv sync --extra dev
 
 
 
+=======
+# course-code-hub
+>>>>>>> source/main
