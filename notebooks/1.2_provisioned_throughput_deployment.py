@@ -22,6 +22,15 @@ w = WorkspaceClient()
 
 # COMMAND ----------
 
+# List available models in system.ai catalog for provisioned throughput
+logger.info("Available models in system.ai catalog:")
+logger.info("-" * 80)
+for model in w.registered_models.list(catalog_name="system", schema_name="ai"):
+    logger.info(f"  {model.full_name}")
+logger.info("-" * 80)
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 1. Understanding Provisioned Throughput
 # MAGIC
@@ -129,7 +138,6 @@ endpoint_config = EndpointCoreConfigInput(
     served_entities=[
         ServedEntityInput(
             entity_name=MODEL_NAME,
-            entity_version="1",
             workload_size=WORKLOAD_SIZE,
             scale_to_zero_enabled=SCALE_TO_ZERO,
             min_provisioned_throughput=MIN_PROVISIONED_THROUGHPUT,
@@ -309,7 +317,7 @@ estimate_provisioned_cost(50, 8, 30)
 # COMMAND ----------
 
 # Uncomment to delete the endpoint
-
+"""
 def delete_endpoint(endpoint_name: str):
     try:
         w.serving_endpoints.delete(endpoint_name)
@@ -317,9 +325,8 @@ def delete_endpoint(endpoint_name: str):
     except Exception as e:
         logger.error(f"Error deleting endpoint: {e}")
 
-delete_endpoint(ENDPOINT_NAME)
+# delete_endpoint(ENDPOINT_NAME)
+"""
 
 logger.info("Remember to delete your provisioned endpoint when done!")
 logger.info("Uncomment the code above to delete the endpoint.")
-
-# COMMAND ----------

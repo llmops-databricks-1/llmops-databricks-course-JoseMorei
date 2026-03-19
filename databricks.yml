@@ -1,21 +1,8 @@
-<<<<<<< HEAD
-bundle:
-  name: llmops-databricks-course-JoseMorei
-
-include:
-  - resources/*.yml
-
-variables:
-  git_sha:
-    description: "Git SHA of the deployed commit"
-    default: "local"
-=======
 # Databricks Asset Bundle configuration for LLMOps Course
 # See https://docs.databricks.com/dev-tools/bundles/index.html for documentation
 
 bundle:
   name: course-code-hub
->>>>>>> source/main
 
 artifacts:
   default:
@@ -23,15 +10,6 @@ artifacts:
     build: uv build
     path: .
 
-<<<<<<< HEAD
-targets:
-  dev:
-    mode: development
-    default: true
-    workspace:
-      host: https://<your-databricks-workspace>
-      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
-=======
 variables:
   git_sha:
     description: git_sha
@@ -51,20 +29,25 @@ targets:
     default: true
     mode: development
     workspace:
-      host: https://adb-971256932836835.15.azuredatabricks.net/
+      host: https://dbc-e1714611-3243.cloud.databricks.com
+      auth_type: databricks-cli
+     # host: https://adb-971256932836835.15.azuredatabricks.net/
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
 
   acc:
     workspace:
-      host: https://adb-971256932836835.15.azuredatabricks.net
+      host: https://dbc-e1714611-3243.cloud.databricks.com
+      auth_type: databricks-cli
+      #host: https://adb-971256932836835.15.azuredatabricks.net
       root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
     variables:
       schedule_pause_status: PAUSED
 
   prd:
     workspace:
-      host: https://adb-971256932836835.15.azuredatabricks.net
+      host: https://dbc-e1714611-3243.cloud.databricks.com
+      auth_type: databricks-cli
+      #host: https://adb-971256932836835.15.azuredatabricks.net
       root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
     variables:
       schedule_pause_status: UNPAUSED
->>>>>>> source/main
