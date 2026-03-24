@@ -142,29 +142,55 @@ for msg in full_conversation:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Using with ArxivAgent
+# MAGIC ## 5. Using Memory with an LLM
 # MAGIC
-# MAGIC Integrate memory with the agent:
+# MAGIC Integrate memory with LLM calls for stateful conversations:
 
 # COMMAND ----------
 
-from arxiv_curator.agent import ArxivAgent
+from openai import OpenAI
 from arxiv_curator.config import load_config, get_env
+from pyspark.sql import SparkSession
 
-# Load config
-env = get_env()
+spark = SparkSession.builder.getOrCreate()
+env = get_env(spark)
 cfg = load_config("../project_config.yml", env)
 
-# Create agent
-agent = ArxivAgent(
-    llm_endpoint=cfg.llm_endpoint,
-    system_prompt=cfg.system_prompt,
-    catalog=cfg.catalog,
-    schema=cfg.schema,
-    genie_space_id=cfg.genie_space_id,
+# Create OpenAI client for Databricks
+client = OpenAI(
+    api_key=w.tokens.create(lifetime_seconds=1200).token_value,
+    base_url=f"{w.config.host}/serving-endpoints"
 )
 
-logger.info("✓ Agent created")
+def chat_with_memory(session_id: str, user_message: str, memory: LakebaseMemory) -> str:
+    """Chat with LLM using session memory for context."""
+    # Load previous messages
+    previous_messages = memory.load_messages(session_id)
+    
+    # Build messages with system prompt
+    messages = [
+        {"role": "system", "content": "You are a helpful research assistant."}
+    ] + previous_messages + [
+        {"role": "user", "content": user_message}
+    ]
+    
+    # Call LLM
+    response = client.chat.completions.create(
+        model=cfg.llm_endpoint,
+        messages=messages,
+    )
+    
+    assistant_response = response.choices[0].message.content
+    
+    # Save new messages to memory
+    memory.save_messages(session_id, [
+        {"role": "user", "content": user_message},
+        {"role": "assistant", "content": assistant_response},
+    ])
+    
+    return assistant_response
+
+logger.info("✓ Chat function with memory created")
 
 # COMMAND ----------
 
@@ -172,39 +198,14 @@ logger.info("✓ Agent created")
 agent_session_id = f"agent-session-{uuid4()}"
 
 # First query
-query1 = {"input": [{"role": "user", "content": "Find papers about RAG"}]}
-response1 = agent.predict(query1)
-
-# Save to memory
-memory.save_messages(agent_session_id, [
-    {"role": "user", "content": "Find papers about RAG"},
-    {"role": "assistant", "content": response1["output"][0]["content"]},
-])
-
-logger.info("✓ First query completed and saved")
+response1 = chat_with_memory(agent_session_id, "What is RAG in the context of LLMs?", memory)
+logger.info(f"Response 1: {response1[:200]}...")
 
 # COMMAND ----------
 
-# Follow-up query with context
-# Load previous messages
-previous_messages = memory.load_messages(agent_session_id)
-
-# Add new query
-query2 = {
-    "input": previous_messages + [
-        {"role": "user", "content": "What about the most cited one?"}
-    ]
-}
-
-response2 = agent.predict(query2)
-
-# Save new turn
-memory.save_messages(agent_session_id, [
-    {"role": "user", "content": "What about the most cited one?"},
-    {"role": "assistant", "content": response2["output"][0]["content"]},
-])
-
-logger.info("✓ Follow-up query completed with context")
+# Follow-up query with context (memory is automatically loaded)
+response2 = chat_with_memory(agent_session_id, "What are the main components?", memory)
+logger.info(f"Response 2: {response2[:200]}...")
 
 # COMMAND ----------
 

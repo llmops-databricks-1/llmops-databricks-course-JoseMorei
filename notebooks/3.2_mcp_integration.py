@@ -391,12 +391,90 @@ test_mcp_connection(vector_search_mcp_url)
 # MAGIC %md
 # MAGIC ## 12. Using MCP Tools with an Agent
 # MAGIC
-# MAGIC Now let's use the MCP tools with `SimpleAgent` from our package.
+# MAGIC Now let's create a simple agent that can use MCP tools.
 
 # COMMAND ----------
 
-from arxiv_curator.agent import SimpleAgent
-from mlflow.types.responses import ResponsesAgentRequest
+from openai import OpenAI
+
+class SimpleAgent:
+    """A simple agent that can call tools in a loop."""
+    
+    def __init__(self, llm_endpoint: str, system_prompt: str, tools: list):
+        self.llm_endpoint = llm_endpoint
+        self.system_prompt = system_prompt
+        self._tools_dict = {tool.name: tool for tool in tools}
+        self._client = OpenAI(
+            api_key=w.tokens.create(lifetime_seconds=1200).token_value,
+            base_url=f"{w.config.host}/serving-endpoints"
+        )
+    
+    def get_tool_specs(self) -> list[dict]:
+        """Get tool specifications for the LLM."""
+        return [tool.spec for tool in self._tools_dict.values()]
+    
+    def execute_tool(self, tool_name: str, args: dict) -> str:
+        """Execute a tool by name."""
+        if tool_name not in self._tools_dict:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        return self._tools_dict[tool_name].exec_fn(**args)
+    
+    def chat(self, user_message: str, max_iterations: int = 10) -> str:
+        """Chat with the agent, allowing tool calls."""
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+        
+        for iteration in range(max_iterations):
+            response = self._client.chat.completions.create(
+                model=self.llm_endpoint,
+                messages=messages,
+                tools=self.get_tool_specs() if self._tools_dict else None,
+            )
+            
+            assistant_message = response.choices[0].message
+            
+            if assistant_message.tool_calls:
+                # Add assistant message with tool calls (exclude unsupported fields)
+                messages.append({
+                    "role": "assistant",
+                    "content": assistant_message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        }
+                        for tc in assistant_message.tool_calls
+                    ]
+                })
+                
+                for tool_call in assistant_message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
+                    
+                    logger.info(f"Calling tool: {tool_name}({tool_args})")
+                    
+                    try:
+                        result = self.execute_tool(tool_name, tool_args)
+                    except Exception as e:
+                        result = f"Error: {str(e)}"
+                    
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": str(result)
+                    })
+            else:
+                return assistant_message.content
+        
+        return "Max iterations reached."
+
+# COMMAND ----------
 
 # Create agent with MCP tools
 agent = SimpleAgent(
@@ -415,11 +493,8 @@ for tool_name in agent._tools_dict.keys():
 logger.info("Testing agent with MCP tools:")
 logger.info("=" * 80)
 
-response = agent.predict(ResponsesAgentRequest(
-    input=[{"role": "user", "content": "Find papers about transformer architectures"}]
-))
-
-logger.info(f"Agent response: {response.output[-1].content}")
+response = agent.chat("Find papers about transformer architectures")
+logger.info(f"Agent response: {response}")
 
 # COMMAND ----------
 

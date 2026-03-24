@@ -32,43 +32,68 @@ schema = cfg.schema
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 1. Create SQL Warehouse
+# MAGIC ## 1. Check for Existing Genie Space
 # MAGIC
-# MAGIC Genie requires a SQL warehouse to execute queries.
-
-# COMMAND ----------
-
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service import sql
-from databricks.sdk.service.sql import CreateWarehouseRequestWarehouseType
-
-
-w = WorkspaceClient()
-
-created = w.warehouses.create(
-    name="__2XS_arxiv_warehouse",
-    cluster_size="2X-Small",
-    max_num_clusters=1,
-    auto_stop_mins=10,
-    warehouse_type=CreateWarehouseRequestWarehouseType("PRO"),
-    enable_serverless_compute=True,
-    tags=sql.EndpointTags(
-        custom_tags=[sql.EndpointTagPair(key="Project", value="arxiv_curator")]
-    ),
-).result()
-
-warehouse_id = created.id
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 2. Configure Genie Space
-# MAGIC
-# MAGIC Define which tables and columns Genie can access.
+# MAGIC First, check if we already have a Genie space configured.
 
 # COMMAND ----------
 
 import json
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service import sql
+from databricks.sdk.service.sql import CreateWarehouseRequestWarehouseType
+from loguru import logger
+
+w = WorkspaceClient()
+
+# Check if genie_space_id is configured
+if hasattr(cfg, 'genie_space_id') and cfg.genie_space_id:
+    logger.info(f"Using existing Genie Space from config: {cfg.genie_space_id}")
+    space_id = cfg.genie_space_id
+    USE_EXISTING_SPACE = True
+else:
+    logger.info("No Genie Space configured, will create a new one")
+    USE_EXISTING_SPACE = False
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Create SQL Warehouse (if needed)
+# MAGIC
+# MAGIC Genie requires a SQL warehouse to execute queries.
+# MAGIC Skip this if using an existing space.
+
+# COMMAND ----------
+
+if not USE_EXISTING_SPACE:
+    # Create a new warehouse for the Genie space
+    created = w.warehouses.create(
+        name="__2XS_arxiv_warehouse",
+        cluster_size="2X-Small",
+        max_num_clusters=1,
+        auto_stop_mins=10,
+        warehouse_type=CreateWarehouseRequestWarehouseType("PRO"),
+        enable_serverless_compute=True,
+        tags=sql.EndpointTags(
+            custom_tags=[sql.EndpointTagPair(key="Project", value="arxiv_curator")]
+        ),
+    ).result()
+    warehouse_id = created.id
+    logger.info(f"Created warehouse: {warehouse_id}")
+else:
+    # Use warehouse from config
+    warehouse_id = cfg.warehouse_id
+    logger.info(f"Using existing warehouse: {warehouse_id}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Configure Genie Space
+# MAGIC
+# MAGIC Define which tables and columns Genie can access.
+# MAGIC Skip this if using an existing space.
+
+# COMMAND ----------
 
 # Configure the Genie space with arxiv_papers table
 serialized_space = {
@@ -109,29 +134,32 @@ serialized_space = {
     },
 }
 
-space = w.genie.create_space(
-    warehouse_id=warehouse_id,
-    serialized_space=json.dumps(serialized_space),
-    title="arxiv-curator-space",
-)
+if not USE_EXISTING_SPACE:
+    space = w.genie.create_space(
+        warehouse_id=warehouse_id,
+        serialized_space=json.dumps(serialized_space),
+        title="arxiv-curator-space",
+    )
+    space_id = space.space_id
+    logger.info(f"Created new Genie Space: {space_id}")
+else:
+    logger.info(f"Using existing Genie Space: {space_id}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Verify Genie Space
+# MAGIC ## 4. Verify Genie Space
 
 # COMMAND ----------
-
-space_id = space.space_id
-print(f"Created Genie Space ID: {space_id}")
 
 space = w.genie.get_space(space_id=space_id, include_serialized_space=True)
-json.loads(space.serialized_space)
+logger.info(f"Genie Space ID: {space_id}")
+logger.info(f"Space config: {json.loads(space.serialized_space)}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4. Start a Conversation
+# MAGIC ## 5. Start a Conversation
 # MAGIC
 # MAGIC Ask Genie a natural language question about the data.
 
@@ -146,7 +174,7 @@ conversation.as_dict()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Continue the Conversation
+# MAGIC ## 6. Continue the Conversation
 # MAGIC
 # MAGIC Ask follow-up questions in the same conversation.
 

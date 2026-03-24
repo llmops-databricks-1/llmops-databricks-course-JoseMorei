@@ -46,12 +46,8 @@
 # COMMAND ----------
 
 import json
-from typing import Any, Callable
-from pydantic import BaseModel
 from databricks.sdk import WorkspaceClient
 from databricks.vector_search.client import VectorSearchClient
-import mlflow
-from mlflow.entities import SpanType
 from loguru import logger
 from pyspark.sql import SparkSession
 
@@ -193,7 +189,6 @@ def parse_vector_search_results(results):
 
 # COMMAND ----------
 
-@mlflow.trace(span_type=SpanType.TOOL)
 def search_papers(query: str, num_results: int = 5, year_filter: str = None) -> str:
     """Search for relevant papers using vector search.
     
@@ -382,7 +377,6 @@ logger.info(f"Search result:\n{search_result}")
 # MAGIC 2. **Type hints**: Use proper Python type hints
 # MAGIC 3. **Error handling**: Handle errors gracefully
 # MAGIC 4. **Return structured data**: JSON or clear text format
-# MAGIC 5. **Add tracing**: Use `@mlflow.trace` for observability
 # MAGIC 6. **Validate inputs**: Check parameters before execution
 # MAGIC 7. **Document parameters**: Clear parameter descriptions
 # MAGIC
@@ -469,12 +463,95 @@ test_tool("calculator", [
 # MAGIC %md
 # MAGIC ## 11. Using Tools with an Agent
 # MAGIC
-# MAGIC Now let's use these tools with an actual LLM agent using `SimpleAgent` from our package.
+# MAGIC Now let's create a simple agent that can call our tools.
 
 # COMMAND ----------
 
-from arxiv_curator.agent import SimpleAgent
-from mlflow.types.responses import ResponsesAgentRequest
+class SimpleAgent:
+    """A simple agent that can call tools in a loop."""
+    
+    def __init__(self, llm_endpoint: str, system_prompt: str, tools: list[ToolInfo]):
+        self.llm_endpoint = llm_endpoint
+        self.system_prompt = system_prompt
+        self._tools_dict = {tool.name: tool for tool in tools}
+        self._client = OpenAI(
+            api_key=w.tokens.create(lifetime_seconds=1200).token_value,
+            base_url=f"{w.config.host}/serving-endpoints"
+        )
+    
+    def get_tool_specs(self) -> list[dict]:
+        """Get tool specifications for the LLM."""
+        return [tool.spec for tool in self._tools_dict.values()]
+    
+    def execute_tool(self, tool_name: str, args: dict) -> str:
+        """Execute a tool by name."""
+        if tool_name not in self._tools_dict:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        return self._tools_dict[tool_name].exec_fn(**args)
+    
+    def chat(self, user_message: str, max_iterations: int = 10) -> str:
+        """Chat with the agent, allowing tool calls."""
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+        
+        for iteration in range(max_iterations):
+            # Call LLM
+            response = self._client.chat.completions.create(
+                model=self.llm_endpoint,
+                messages=messages,
+                tools=self.get_tool_specs() if self._tools_dict else None,
+            )
+            
+            assistant_message = response.choices[0].message
+            
+            # Check if LLM wants to call tools
+            if assistant_message.tool_calls:
+                # Add assistant message with tool calls (exclude unsupported fields)
+                messages.append({
+                    "role": "assistant",
+                    "content": assistant_message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        }
+                        for tc in assistant_message.tool_calls
+                    ]
+                })
+                
+                # Execute each tool call
+                for tool_call in assistant_message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
+                    
+                    logger.info(f"Calling tool: {tool_name}({tool_args})")
+                    
+                    try:
+                        result = self.execute_tool(tool_name, tool_args)
+                    except Exception as e:
+                        result = f"Error: {str(e)}"
+                    
+                    # Add tool result to messages
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": str(result)
+                    })
+            else:
+                # No tool calls, return the response
+                return assistant_message.content
+        
+        return "Max iterations reached."
+
+# COMMAND ----------
+
+from openai import OpenAI
 
 # Create agent with our tools
 agent = SimpleAgent(
@@ -493,11 +570,8 @@ for tool_name in agent._tools_dict.keys():
 logger.info("Testing agent with calculator:")
 logger.info("=" * 80)
 
-response = agent.predict(ResponsesAgentRequest(
-    input=[{"role": "user", "content": "What is 42 multiplied by 17?"}]
-))
-
-logger.info(f"Agent response: {response.output[-1].content}")
+response = agent.chat("What is 42 multiplied by 17?")
+logger.info(f"Agent response: {response}")
 
 # COMMAND ----------
 
@@ -505,65 +579,25 @@ logger.info(f"Agent response: {response.output[-1].content}")
 logger.info("Testing agent with search tool:")
 logger.info("=" * 80)
 
-response = agent.predict(ResponsesAgentRequest(
-    input=[{"role": "user", "content": "Find papers about attention mechanisms"}]
-))
-
-logger.info(f"Agent response: {response.output[-1].content}")
+response = agent.chat("Find papers about attention mechanisms")
+logger.info(f"Agent response: {response}")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Summary
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 1. Agent Architecture
 # MAGIC
-# MAGIC ```
-# MAGIC ┌─────────────────────────────────────────┐
-# MAGIC │           User Request                   │
-# MAGIC └──────────────┬──────────────────────────┘
-# MAGIC                │
-# MAGIC                ↓
-# MAGIC ┌─────────────────────────────────────────┐
-# MAGIC │           Agent                          │
-# MAGIC │  - System Prompt                         │
-# MAGIC │  - Conversation History                  │
-# MAGIC │  - Tool Registry                         │
-# MAGIC └──────────────┬──────────────────────────┘
-# MAGIC                │
-# MAGIC                ↓
-# MAGIC ┌─────────────────────────────────────────┐
-# MAGIC │           LLM                            │
-# MAGIC │  - Decides: Answer or Use Tool?         │
-# MAGIC └──────────────┬──────────────────────────┘
-# MAGIC                │
-# MAGIC        ┌───────┴───────┐
-# MAGIC        │               │
-# MAGIC        ↓               ↓
-# MAGIC   Direct Answer    Tool Call
-# MAGIC        │               │
-# MAGIC        │               ↓
-# MAGIC        │      ┌─────────────────┐
-# MAGIC        │      │  Execute Tool   │
-# MAGIC        │      └────────┬────────┘
-# MAGIC        │               │
-# MAGIC        │               ↓
-# MAGIC        │      ┌─────────────────┐
-# MAGIC        │      │  Tool Result    │
-# MAGIC        │      └────────┬────────┘
-# MAGIC        │               │
-# MAGIC        │               ↓
-# MAGIC        │      ┌─────────────────┐
-# MAGIC        │      │  LLM (again)    │
-# MAGIC        │      │  Synthesize     │
-# MAGIC        │      └────────┬────────┘
-# MAGIC        │               │
-# MAGIC        └───────┬───────┘
-# MAGIC                │
-# MAGIC                ↓
-# MAGIC ┌─────────────────────────────────────────┐
-# MAGIC │           Final Response                 │
-# MAGIC └─────────────────────────────────────────┘
-# MAGIC ```
+# MAGIC In this notebook, we learned:
+# MAGIC
+# MAGIC 1. ✅ What agent tools are and why they're important
+# MAGIC 2. ✅ Tool specification format (OpenAI function calling)
+# MAGIC 3. ✅ Creating custom functions as tools
+# MAGIC 4. ✅ Vector search as a tool
+# MAGIC 5. ✅ Tool registry pattern for managing tools
+# MAGIC 6. ✅ Executing tools programmatically
+# MAGIC 7. ✅ Best practices for tool design
+# MAGIC 8. ✅ Common tool patterns
+# MAGIC 9. ✅ Testing tools
+# MAGIC 10. ✅ **Building a simple agent with tool calling loop**
+# MAGIC
+# MAGIC **Next**: Lecture 3.2 - MCP Integration
