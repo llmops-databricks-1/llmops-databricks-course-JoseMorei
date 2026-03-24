@@ -83,8 +83,8 @@ w = WorkspaceClient()
 # MAGIC
 # MAGIC 1. **Vector Search MCP**: Search vector indexes
 # MAGIC 2. **Genie Space MCP**: Query data using natural language
-# MAGIC 3. **Unity Catalog MCP**: Access catalog metadata (coming soon)
-# MAGIC 4. **SQL Warehouse MCP**: Execute SQL queries (coming soon)
+# MAGIC 3. **Unity Catalog Functions MCP**: Execute UC functions
+# MAGIC 4. **SQL Warehouse MCP**: Execute SQL queries
 
 # COMMAND ----------
 
