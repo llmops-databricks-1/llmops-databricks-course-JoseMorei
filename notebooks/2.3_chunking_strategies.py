@@ -98,8 +98,8 @@ schema = cfg.schema
 
 # COMMAND ----------
 
-# Load chunks from the arxiv_chunks table created in Lecture 2.2
-chunks_df = spark.table(f"{catalog}.{schema}.arxiv_chunks")
+# Load chunks from the arxiv_chunks_table created in Lecture 2.2
+chunks_df = spark.table(f"{catalog}.{schema}.arxiv_chunks_table")
 
 logger.info(f"Total chunks available: {chunks_df.count()}")
 chunks_df.show(5, truncate=50)
@@ -223,6 +223,7 @@ logger.info(f"\nFirst chunk preview:")
 logger.info(sentence_chunks[0][:200] + "...")
 
 # COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## 7. Chunk Size Recommendations
 # MAGIC
@@ -258,5 +259,3 @@ logger.info(sentence_chunks[0][:200] + "...")
 # MAGIC 3. Forget to clean and normalize text
 # MAGIC 4. Lose metadata during chunking
 # MAGIC 5. Use the same chunk size for all document types
-
-# COMMAND ----------
