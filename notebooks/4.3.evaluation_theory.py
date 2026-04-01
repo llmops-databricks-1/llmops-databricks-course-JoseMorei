@@ -25,11 +25,19 @@ from arxiv_curator.evaluation import (
     word_count_check,
     mentions_papers
 )
+import os
+from dotenv import load_dotenv
+
+from loguru import logger
 
 # COMMAND ----------
 
 # Setup
-mlflow.set_tracking_uri("databricks")
+if "DATABRICKS_RUNTIME_VERSION" not in os.environ:
+    load_dotenv()
+    profile = os.environ["PROFILE"]
+    mlflow.set_tracking_uri(f"databricks://{profile}")
+    mlflow.set_registry_uri(f"databricks-uc://{profile}")
 
 spark = SparkSession.builder.getOrCreate()
 
@@ -339,7 +347,7 @@ comprehensive_results = mlflow.genai.evaluate(
 
 logger.info("Comprehensive Evaluation Results:")
 logger.info("=" * 80)
-display(comprehensive_results.tables['eval_results'])
+comprehensive_results
 
 # COMMAND ----------
 
