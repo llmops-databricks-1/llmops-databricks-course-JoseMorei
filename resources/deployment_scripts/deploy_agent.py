@@ -1,73 +1,56 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC # Deploy Agent to Serving Endpoint
-# MAGIC
-# MAGIC This notebook:
-# MAGIC 1. Gets the model version from the previous task
-# MAGIC 2. Deploys it to a serving endpoint
-# MAGIC 3. Configures inference tables and environment variables
-
-# COMMAND ----------
-
+from databricks import agents
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.runtime import dbutils
+from mlflow import MlflowClient
 from loguru import logger
 
-from arxiv_curator.config import load_config
-from arxiv_curator.serving import serve_model
+from arxiv_curator.config import ProjectConfig
 from arxiv_curator.utils.common import get_widget
 
-# Get model_version from previous task or widget
-try:
-    model_version = dbutils.jobs.taskValues.get(
-        taskKey="log_register_agent",
-        key="model_version",
-    )
-    logger.info(f"Got model version from previous task: {model_version}")
-except Exception:
-    model_version = get_widget("model_version", "1")
-    logger.info(f"Got model version from widget: {model_version}")
+# COMMAND ----------
 
+# Get parameters
 git_sha = get_widget("git_sha", "local")
 env = get_widget("env", "dev")
-secret_scope = get_widget("secret_scope", "arxiv-agent-scope")
+secret_scope = "arxiv-agent-scope"
 
 # Load configuration
-cfg = load_config("project_config.yml", env=env)
+cfg = ProjectConfig.from_yaml("project_config.yml", env=env)
 
+# Get model details
 model_name = f"{cfg.catalog}.{cfg.schema}.arxiv_agent"
+client = MlflowClient()
+model_version = client.get_model_version_by_alias(model_name, "latest-model").version
 endpoint_name = f"arxiv-agent-{env}"
-workspace = WorkspaceClient()
 
-logger.info(f"Environment: {env}")
-logger.info(f"Model: {model_name}@{model_version}")
-logger.info(f"Endpoint: {endpoint_name}")
+# Get experiment ID
+experiment = client.get_experiment_by_name(cfg.experiment_name)
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Deploy to Serving Endpoint
+logger.info(f"Deploying agent:")
+logger.info(f"  Model: {model_name}")
+logger.info(f"  Version: {model_version}")
+logger.info(f"  Endpoint: {endpoint_name}")
 
 # COMMAND ----------
 
-serve_model(
-    entity_name=model_name,
-    entity_version=str(model_version),
+# Deploy agent to serving endpoint
+agents.deploy(
+    model_name=model_name,
+    model_version=int(model_version),
     endpoint_name=endpoint_name,
-    catalog_name=cfg.catalog,
-    schema_name=cfg.schema,
-    table_name_prefix=f"arxiv_agent_{env}",
-    tags={"project_name": "arxiv_curator", "env": env},
-    env_vars={
+    usage_policy_id=cfg.usage_policy_id,
+    scale_to_zero=True,
+    workload_size="Small",
+    deploy_feedback_model=False,
+    environment_vars={
         "GIT_SHA": git_sha,
-        "MODEL_VERSION": str(model_version),
+        "MODEL_VERSION": model_version,
         "MODEL_SERVING_ENDPOINT_NAME": endpoint_name,
-        "DATABRICKS_CLIENT_ID": f"{{{{secrets/{secret_scope}/client-id}}}}",
-        "DATABRICKS_CLIENT_SECRET": f"{{{{secrets/{secret_scope}/client-secret}}}}",
-        "DATABRICKS_HOST": workspace.config.host,
+        "MLFLOW_EXPERIMENT_ID": experiment.experiment_id,
+        "LAKEBASE_SP_CLIENT_ID": f"{{{{secrets/{secret_scope}/client-id}}}}",
+        "LAKEBASE_SP_CLIENT_SECRET": f"{{{{secrets/{secret_scope}/client-secret}}}}",
+        "LAKEBASE_SP_HOST": WorkspaceClient().config.host,
     },
 )
 
-logger.info(f"\n✓ Deployment complete!")
-logger.info(f"  Endpoint: {endpoint_name}")
-logger.info(f"  Model: {model_name}@{model_version}")
+logger.info(f"✓ Deployment complete!")

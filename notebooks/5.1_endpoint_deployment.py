@@ -12,17 +12,11 @@
 # COMMAND ----------
 import time
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.serving import (
-    ServedEntityInput,
-    EndpointCoreConfigInput,
-    AutoCaptureConfigInput,
-)
 import mlflow
 from pyspark.sql import SparkSession
 from loguru import logger
 
 from arxiv_curator.config import load_config, get_env
-from arxiv_curator.serving import serve_model
 
 # COMMAND ----------
 
@@ -72,185 +66,79 @@ logger.info(f"Schema: {cfg.schema}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. Define Endpoint Configuration
+# MAGIC ## 2. Deploy Agent Using agents.deploy()
+# MAGIC
+# MAGIC The `agents.deploy()` API simplifies deployment by:
+# MAGIC - Automatically configuring the endpoint
+# MAGIC - Setting up inference tables
+# MAGIC - Managing environment variables
+# MAGIC - Handling model versioning
 
 # COMMAND ----------
 
-# Endpoint name
+from databricks import agents
+from mlflow import MlflowClient
+
+# Get model details
+model_name = f"{cfg.catalog}.{cfg.schema}.arxiv_agent"
+client = MlflowClient()
+model_version = client.get_model_version_by_alias(model_name, "latest-model").version
 endpoint_name = f"arxiv-agent-{env}"
 
-logger.info(f"Endpoint name: {endpoint_name}")
+# Get experiment ID for tracing
+experiment = client.get_experiment_by_name(cfg.experiment_name)
 
-# Model to deploy
-model_name = f"{cfg.catalog}.{cfg.schema}.arxiv_agent"
-
-# Get the version number from the alias
-from mlflow import MlflowClient
-client = MlflowClient()
-model_version_info = client.get_model_version_by_alias(model_name, "latest-model")
-model_version = model_version_info.version
-
-logger.info(f"Model: {model_name}")
-logger.info(f"Version: {model_version} (from alias 'latest-model')")
+logger.info(f"Deploying agent:")
+logger.info(f"  Model: {model_name}")
+logger.info(f"  Version: {model_version}")
+logger.info(f"  Endpoint: {endpoint_name}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Configure Served Entity
+# MAGIC ### Deploy the Agent
 
 # COMMAND ----------
 
-served_entity = ServedEntityInput(
-    entity_name=model_name,
-    entity_version=model_version,
-    scale_to_zero_enabled=True,  # Scale down when not in use
-    workload_size="Small",  # Small, Medium, Large
+# Deploy agent to serving endpoint
+agents.deploy(
+    model_name=model_name,
+    model_version=int(model_version),
+    endpoint_name=endpoint_name,
+    scale_to_zero=True,
+    workload_size="Small",
     environment_vars={
         "MODEL_SERVING_ENDPOINT_NAME": endpoint_name,
-    }
+        "MLFLOW_EXPERIMENT_ID": experiment.experiment_id,
+    },
 )
 
-logger.info("Served Entity Configuration:")
-logger.info(f"  Model: {served_entity.entity_name}")
-logger.info(f"  Version: {served_entity.entity_version}")
-logger.info(f"  Workload Size: {served_entity.workload_size}")
-logger.info(f"  Scale to Zero: {served_entity.scale_to_zero_enabled}")
+logger.info(f"✓ Deployment complete!")
+logger.info(f"  Endpoint: {endpoint_name}")
+logger.info(f"  Model: {model_name}@{model_version}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Enable Inference Tables
-# MAGIC
-# MAGIC **Inference Tables** automatically log:
-# MAGIC - All requests and responses
-# MAGIC - Timestamps and latencies
-# MAGIC - Model predictions
-# MAGIC - Custom metadata
-# MAGIC
-# MAGIC This enables:
-# MAGIC - Monitoring and alerting
-# MAGIC - Debugging issues
-# MAGIC - Evaluation on production data
-# MAGIC - Compliance and auditing
-
-# COMMAND ----------
-
-# Configure AI Gateway with inference tables
-from databricks.sdk.service.serving import (
-    AiGatewayConfig,
-    AiGatewayInferenceTableConfig,
-)
-
-ai_gateway_config = AiGatewayConfig(
-    inference_table_config=AiGatewayInferenceTableConfig(
-        catalog_name=cfg.catalog,
-        schema_name=cfg.schema,
-        table_name_prefix=f"arxiv_agent_{env}",
-        enabled=True,
-    )
-)
-
-logger.info("Inference Table Configuration:")
-logger.info(f"  Catalog: {ai_gateway_config.inference_table_config.catalog_name}")
-logger.info(f"  Schema: {ai_gateway_config.inference_table_config.schema_name}")
-logger.info(f"  Table Prefix: {ai_gateway_config.inference_table_config.table_name_prefix}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3. Deploy the Endpoint
-
-# COMMAND ----------
-
-# Check if endpoint exists
-try:
-    existing_endpoint = w.serving_endpoints.get(endpoint_name)
-    endpoint_exists = True
-    logger.info(f"✓ Endpoint '{endpoint_name}' already exists")
-    logger.info(f"  State: {existing_endpoint.state.config_update}")
-except Exception:
-    endpoint_exists = False
-    logger.info(f"Endpoint '{endpoint_name}' does not exist - will create")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Create or Update Endpoint
-
-# COMMAND ----------
-
-if not endpoint_exists:
-    # Create new endpoint
-    logger.info(f"Creating endpoint: {endpoint_name}")
-    
-    w.serving_endpoints.create(
-        name=endpoint_name,
-        config=EndpointCoreConfigInput(
-            name=endpoint_name,
-            served_entities=[served_entity],
-        ),
-        ai_gateway=ai_gateway_config,
-    )
-    
-    logger.info(f"✓ Endpoint creation initiated")
-else:
-    # Update existing endpoint
-    logger.info(f"Updating endpoint: {endpoint_name}")
-    
-    w.serving_endpoints.update_config(
-        name=endpoint_name,
-        served_entities=[served_entity],
-    )
-    
-    logger.info(f"✓ Endpoint update initiated")
+# MAGIC ## 3. Test the Deployed Endpoint
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### Wait for Endpoint to be Ready
+# MAGIC
+# MAGIC The deployment may take 5-10 minutes. You can check the endpoint status in the UI or wait here.
 
 # COMMAND ----------
 
-logger.info(f"Waiting for endpoint '{endpoint_name}' to be ready...")
-logger.info("This may take 5-10 minutes for initial deployment...")
-
-w.serving_endpoints.wait_get_serving_endpoint_not_updating(endpoint_name)
-
-logger.info(f"\n✓ Endpoint is ready!")
-
-# Get endpoint details
-endpoint = w.serving_endpoints.get(endpoint_name)
-logger.info(f"  State: {endpoint.state.ready}")
-logger.info(f"  Config Update: {endpoint.state.config_update}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 4. Test the Deployed Endpoint
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Get OpenAI-Compatible Client
-
-# COMMAND ----------
-
-from openai import OpenAI
-
-# Get OpenAI client for the endpoint
-client = w.serving_endpoints.get_open_ai_client()
-
-logger.info("✓ OpenAI client initialized")
-
-# COMMAND ----------
+# Wait for endpoint to be ready (optional - can also check in UI)
+# w.serving_endpoints.wait_get_serving_endpoint_not_updating(endpoint_name)
+# logger.info(f"✓ Endpoint is ready!")
 
 # MAGIC %md
 # MAGIC ### Send Test Request
 
 # COMMAND ----------
-
-import requests
-import json
 
 # Test request using the agent's expected format
 test_request = {
@@ -339,33 +227,11 @@ for line in response.iter_lines():
 
 logger.info("\n\n✓ Streaming complete")
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 5. Using the Package Helper Function
-# MAGIC
-# MAGIC The `arxiv_curator.serving` module provides a helper:
-
-# COMMAND ----------
-
-# Deploy using helper function
-serve_model(
-    entity_name=model_name,
-    entity_version=str(model_version),
-    endpoint_name=endpoint_name,
-    catalog_name=cfg.catalog,
-    schema_name=cfg.schema,
-    table_name_prefix=f"arxiv_agent_{env}",
-    workload_size="Small",
-    scale_to_zero_enabled=True,
-)
-
-logger.info(f"✓ Endpoint deployed using helper function")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Monitor Endpoint Performance
+# MAGIC ## 4. Monitor Endpoint Performance
 
 # COMMAND ----------
 
@@ -389,7 +255,7 @@ if endpoint_details.config.served_entities:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 7. Query Inference Tables
+# MAGIC ## 5. Query Inference Tables
 
 # COMMAND ----------
 
