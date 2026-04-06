@@ -21,12 +21,11 @@ from arxiv_curator.evaluation import (
     polite_tone_guideline,
     word_count_check,
 )
-from arxiv_curator.utils.common import get_widget
 
-# Get parameters from workflow
-env = get_widget("env", "dev")
-git_sha = get_widget("git_sha", "local")
-run_id = get_widget("run_id", "local")
+# Get parameters from workflow (passed via base_parameters in job YAML)
+env = dbutils.widgets.get("env")
+git_sha = dbutils.widgets.get("git_sha")
+run_id = dbutils.widgets.get("run_id")
 
 # Load configuration
 cfg = load_config("project_config.yml", env=env)

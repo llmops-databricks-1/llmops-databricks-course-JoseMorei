@@ -1,17 +1,17 @@
 # Databricks notebook source
 from databricks import agents
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.runtime import dbutils
 from loguru import logger
 from mlflow import MlflowClient
 
 from arxiv_curator.config import ProjectConfig
-from arxiv_curator.utils.common import get_widget
 
 # COMMAND ----------
 
-# Get parameters
-git_sha = get_widget("git_sha", "local")
-env = get_widget("env", "dev")
+# Get parameters (passed via base_parameters in job YAML)
+git_sha = dbutils.widgets.get("git_sha")
+env = dbutils.widgets.get("env")
 secret_scope = "arxiv-agent-scope"
 
 # Load configuration
