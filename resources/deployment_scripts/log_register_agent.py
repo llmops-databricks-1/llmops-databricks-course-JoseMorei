@@ -10,8 +10,8 @@
 
 # COMMAND ----------
 
-from databricks.sdk.runtime import dbutils
 import mlflow
+from databricks.sdk.runtime import dbutils
 from loguru import logger
 
 from arxiv_curator.agent import ArxivAgent
@@ -60,20 +60,22 @@ agent = ArxivAgent(
 with open("eval_inputs.txt") as f:
     eval_data = [{"inputs": {"question": line.strip()}} for line in f if line.strip()]
 
+
 def predict_fn(question: str) -> str:
     """Predict function that wraps the agent for evaluation."""
     request = {"input": [{"role": "user", "content": question}]}
     result = agent.predict(request)
     return result.output[-1].content
 
+
 # Run evaluation
 results = mlflow.genai.evaluate(
     predict_fn=predict_fn,
     data=eval_data,
-    scorers=[word_count_check, polite_tone_guideline, hook_in_post_guideline]
+    scorers=[word_count_check, polite_tone_guideline, hook_in_post_guideline],
 )
 
-logger.info(f"\n✓ Evaluation complete!")
+logger.info("\n✓ Evaluation complete!")
 logger.info(f"  Metrics: {results.metrics}")
 
 # COMMAND ----------
@@ -83,8 +85,10 @@ logger.info(f"  Metrics: {results.metrics}")
 
 # COMMAND ----------
 
-from datetime import datetime
 import random
+from datetime import datetime
+
+from mlflow import MlflowClient
 from mlflow.models.resources import (
     DatabricksGenieSpace,
     DatabricksServingEndpoint,
@@ -92,14 +96,12 @@ from mlflow.models.resources import (
     DatabricksTable,
     DatabricksVectorSearchIndex,
 )
-from mlflow import MlflowClient
 
 # Define resources
 resources = [
     DatabricksServingEndpoint(endpoint_name=cfg.llm_endpoint),
     DatabricksGenieSpace(genie_space_id=cfg.genie_space_id),
-    DatabricksVectorSearchIndex(
-        index_name=f"{cfg.catalog}.{cfg.schema}.arxiv_index"),
+    DatabricksVectorSearchIndex(index_name=f"{cfg.catalog}.{cfg.schema}.arxiv_index"),
     DatabricksTable(table_name=f"{cfg.catalog}.{cfg.schema}.arxiv_papers"),
     DatabricksSQLWarehouse(warehouse_id=cfg.warehouse_id),
     DatabricksServingEndpoint(endpoint_name="databricks-bge-large-en"),
@@ -111,10 +113,7 @@ session_id = f"s-{timestamp}-{random.randint(100000, 999999)}"
 request_id = f"req-{timestamp}-{random.randint(100000, 999999)}"
 
 test_request = {
-    "input": [
-        {"role": "user",
-         "content": "What are recent papers about LLMs and reasoning?"}
-    ],
+    "input": [{"role": "user", "content": "What are recent papers about LLMs and reasoning?"}],
     "custom_inputs": {
         "session_id": session_id,
         "request_id": request_id,
@@ -130,10 +129,9 @@ model_config = {
 }
 
 # Log model
-ts = datetime.now().strftime('%Y-%m-%d')
+ts = datetime.now().strftime("%Y-%m-%d")
 with mlflow.start_run(
-    run_name=f"arxiv-agent-{ts}",
-    tags={"git_sha": git_sha, "run_id": run_id}
+    run_name=f"arxiv-agent-{ts}", tags={"git_sha": git_sha, "run_id": run_id}
 ) as run:
     model_info = mlflow.pyfunc.log_model(
         artifact_path="agent",
@@ -146,9 +144,7 @@ with mlflow.start_run(
 
 # Register model
 registered_model = mlflow.register_model(
-    model_uri=model_info.model_uri,
-    name=model_name,
-    env_pack="databricks_model_serving"
+    model_uri=model_info.model_uri, name=model_name, env_pack="databricks_model_serving"
 )
 
 # Set alias
@@ -159,7 +155,7 @@ client.set_registered_model_alias(
     version=registered_model.version,
 )
 
-logger.info(f"\n✓ Model registered!")
+logger.info("\n✓ Model registered!")
 logger.info(f"  Name: {registered_model.name}")
 logger.info(f"  Version: {registered_model.version}")
 
