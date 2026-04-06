@@ -27,7 +27,7 @@ jobs:
 
       - name: Install the dependencies
         run: |
-          uv sync --extra ci
+          uv sync --extra dev
 
       - name: Run pre-commit checks
         run: |
