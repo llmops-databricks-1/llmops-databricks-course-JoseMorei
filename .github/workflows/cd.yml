@@ -5,9 +5,8 @@ on:
 
   push:
     branches:
-        - 'main'
-        - 'lecture5'
-        - 'feat/**'
+      - main
+      - lecture5
 
 jobs:
   deploy:
