@@ -16,9 +16,21 @@ resources:
               - ../dist/*.whl
 
       tasks:
+        - task_key: arxiv_data_ingestion
+          environment_key: default
+          notebook_task:
+            notebook_path: ../notebooks/1.3_arxiv_data_ingestion.py
+            base_parameters:
+              env: ${bundle.target}
+              git_sha: "${var.git_sha}"
+              run_id: "{{job.run_id}}"
+
         - task_key: preprocessing
+          depends_on:
+            - task_key: arxiv_data_ingestion
           environment_key: default
           notebook_task:
             notebook_path: deployment_scripts/process_data.py
             base_parameters:
               env: ${bundle.target}
+              git_sha: "${var.git_sha}"
