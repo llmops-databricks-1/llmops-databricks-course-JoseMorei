@@ -57,8 +57,15 @@ agent = ArxivAgent(
 )
 
 # Load evaluation inputs
-# In Databricks notebooks, use relative path from workspace root
-eval_file_path = "eval_inputs.txt"
+# Use dbutils to get the notebook path and construct the file path
+notebook_path = (
+    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+)
+bundle_root = "/".join(
+    notebook_path.split("/")[:-2]
+)  # Go up 2 levels from resources/deployment_scripts
+eval_file_path = f"/Workspace{bundle_root}/files/eval_inputs.txt"
+
 with open(eval_file_path) as f:
     eval_data = [{"inputs": {"question": line.strip()}} for line in f if line.strip()]
 
