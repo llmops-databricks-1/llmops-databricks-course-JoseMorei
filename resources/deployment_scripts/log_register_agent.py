@@ -10,7 +10,6 @@
 
 # COMMAND ----------
 
-import os
 
 import mlflow
 from databricks.sdk.runtime import dbutils
@@ -58,7 +57,8 @@ agent = ArxivAgent(
 )
 
 # Load evaluation inputs
-eval_file_path = os.path.join(os.path.dirname(__file__), "..", "..", "eval_inputs.txt")
+# In Databricks notebooks, use relative path from workspace root
+eval_file_path = "eval_inputs.txt"
 with open(eval_file_path) as f:
     eval_data = [{"inputs": {"question": line.strip()}} for line in f if line.strip()]
 
