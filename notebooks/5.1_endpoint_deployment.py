@@ -17,6 +17,7 @@ import os
 import mlflow
 from databricks import agents
 from databricks.sdk import WorkspaceClient
+from loguru import logger
 from mlflow import MlflowClient
 
 from arxiv_curator.config import ProjectConfig
@@ -32,7 +33,7 @@ if "DATABRICKS_RUNTIME_VERSION" not in os.environ:
 cfg = ProjectConfig.from_yaml("../project_config.yml")
 
 model_name = f"{cfg.catalog}.{cfg.schema}.arxiv_agent"
-endpoint_name = "arxiv-agent-endpoint-course"
+endpoint_name = "arxiv-agent-endpoint-dev-course"
 secret_scope = "arxiv-agent-scope"
 
 model_version = MlflowClient().get_model_version_by_alias(
@@ -111,21 +112,12 @@ response = client.responses.create(
     }}
 )
 
-print(response)
+logger.info(f"Response ID: {response.id}")
+logger.info(f"Session ID: {response.custom_outputs.get('session_id')}")
+logger.info(f"Request ID: {response.custom_outputs.get('request_id')}")
+logger.info("\nAssistant Response:")
+logger.info("-" * 80)
+logger.info(response.output[0].content[0].text)
+logger.info("-" * 80)
 
 # COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Summary
-# MAGIC
-# MAGIC In this notebook, we:
-# MAGIC
-# MAGIC 1. ✅ Deployed an agent using `agents.deploy()`
-# MAGIC 2. ✅ Configured environment variables and secrets
-# MAGIC 3. ✅ Tested the endpoint with OpenAI-compatible client
-# MAGIC 4. ✅ Used session and request IDs for tracing
-# MAGIC
-# MAGIC **Next Steps:**
-# MAGIC - Monitor traces and performance
-# MAGIC - Set up evaluation pipelines
-# MAGIC - Configure alerts
