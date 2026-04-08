@@ -8,6 +8,7 @@ resources:
         pause_status: ${var.schedule_pause_status}
       tags:
         project_name: "arxiv-curator"
+        environment: ${bundle.target}
       environments:
         - environment_key: default
           spec:
