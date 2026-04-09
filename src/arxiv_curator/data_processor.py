@@ -161,24 +161,7 @@ class DataProcessor:
         )
 
         # Create table if it doesn't exist
-        metadata_df.write.format("delta").mode("ignore").saveAsTable(self.papers_table)
-
-        # MERGE to avoid duplicates based on arxiv_id
-        metadata_df.createOrReplaceTempView("new_papers")
-        self.spark.sql(f"""
-            MERGE INTO {self.papers_table} target
-            USING new_papers source
-            ON target.arxiv_id = source.arxiv_id
-            WHEN NOT MATCHED THEN INSERT (
-                arxiv_id, title, authors, summary, pdf_url,
-                published, processed, volume_path
-            ) VALUES (
-                source.arxiv_id, source.title, source.authors,
-                source.summary, source.pdf_url, source.published,
-                source.processed, source.volume_path
-            )
-        """)
-        logger.info(f"Merged {len(records)} paper records into {self.papers_table}")
+        metadata_df.write.format("delta").mode("append").saveAsTable(self.papers_table)
         return records
 
     def parse_pdfs_with_ai(self) -> None:
