@@ -24,10 +24,13 @@ variables:
 include:
   - resources/*.yml
 
+sync:
+  include:
+    - eval_inputs.txt
+    - project_config.yml
+
 targets:
   dev:
-    default: true
-    mode: development
     workspace:
       host: https://dbc-e1714611-3243.cloud.databricks.com
       auth_type: databricks-cli

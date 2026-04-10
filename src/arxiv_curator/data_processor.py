@@ -76,6 +76,7 @@ class DataProcessor:
                 SELECT max(processed)
                 FROM {self.papers_table}
             """).collect()
+<<<<<<< HEAD
             start = str(result[0][0])
             logger.info(f"Found existing arxiv_papers table. Starting from: {start}")
         else:
@@ -83,6 +84,21 @@ class DataProcessor:
             logger.info(
                 f"No existing arxiv_papers table. Starting from 3 days ago: {start}"
             )
+=======
+            max_processed = result[0][0]
+
+            if max_processed is not None:
+                start = str(max_processed)
+                logger.info(f"Found existing arxiv_papers table. Starting from: {start}")
+            else:
+                start = time.strftime("%Y%m%d%H%M", time.gmtime(time.time() - 24 * 3600 * 3))
+                logger.info(
+                    f"Table exists but no processed records. Starting from 3 days ago: {start}"
+                )
+        else:
+            start = time.strftime("%Y%m%d%H%M", time.gmtime(time.time() - 24 * 3600 * 3))
+            logger.info(f"No existing arxiv_papers table. Starting from 3 days ago: {start}")
+>>>>>>> upstream/main
         return start
 
     def download_and_store_papers(
@@ -100,9 +116,7 @@ class DataProcessor:
 
         # Search for papers in arxiv
         client = arxiv.Client()
-        search = arxiv.Search(
-            query=f"cat:cs.AI AND submittedDate:[{start} TO {self.end}]"
-        )
+        search = arxiv.Search(query=f"cat:cs.AI AND submittedDate:[{start} TO {self.end}]")
         papers = client.results(search)
 
         # Download papers and collect metadata
@@ -157,6 +171,7 @@ class DataProcessor:
         )
 
         # Create table if it doesn't exist
+<<<<<<< HEAD
         metadata_df.write.format("delta").mode("ignore").saveAsTable(self.papers_table)
 
         # MERGE to avoid duplicates based on arxiv_id
@@ -175,6 +190,9 @@ class DataProcessor:
             )
         """)
         logger.info(f"Merged {len(records)} paper records into {self.papers_table}")
+=======
+        metadata_df.write.format("delta").mode("append").saveAsTable(self.papers_table)
+>>>>>>> upstream/main
         return records
 
     def parse_pdfs_with_ai(self) -> None:
@@ -269,8 +287,7 @@ class DataProcessor:
         Reads from ai_parsed_docs table and saves to arxiv_chunks table.
         """
         logger.info(
-            f"Processing parsed documents from "
-            f"{self.parsed_table} for end date {self.end}"
+            f"Processing parsed documents from " f"{self.parsed_table} for end date {self.end}"
         )
 
         df = self.spark.table(self.parsed_table).where(f"processed = {self.end}")

@@ -1,4 +1,5 @@
 name: CI
+<<<<<<< HEAD
 
 on:
   pull_request:
@@ -33,11 +34,38 @@ jobs:
       - name: Install the dependencies
         run: |
           uv sync --extra ci
+=======
+on:
+  push:
+    branches:
+      - main
+      - lecture5
+  workflow_dispatch:
+
+jobs:
+  pytest_and_checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 #v5.4.1
+
+      - name: Install the dependencies
+        run: |
+          uv sync --extra dev
+>>>>>>> upstream/main
 
       - name: Run pre-commit checks
         run: |
           uv run pre-commit run --all-files
 
+<<<<<<< HEAD
       - name: run pytest
         run: |
           uv run pytest
+=======
+      - name: Build wheel
+        run: |
+          uv build
+>>>>>>> upstream/main
