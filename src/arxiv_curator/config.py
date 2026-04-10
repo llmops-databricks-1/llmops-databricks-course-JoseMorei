@@ -1,6 +1,5 @@
 """Configuration management for Arxiv Curator."""
 
-import os
 from pathlib import Path
 
 import yaml
@@ -12,6 +11,7 @@ from pyspark.sql import SparkSession
 class ProjectConfig(BaseModel):
     """Project configuration model."""
 
+    usage_policy_id: str | None = Field(..., description="Usage policy id")
     catalog: str = Field(..., description="Unity Catalog name")
     db_schema: str = Field(..., description="Schema name", alias="schema")
     volume: str = Field(..., description="Volume name")
@@ -19,12 +19,24 @@ class ProjectConfig(BaseModel):
     embedding_endpoint: str = Field(..., description="Embedding endpoint name")
     warehouse_id: str = Field(..., description="Warehouse ID")
     vector_search_endpoint: str = Field(..., description="Vector search endpoint name")
+<<<<<<< HEAD
+    genie_space_id: str | None = Field(
+        None, description="Genie space ID for MCP integration"
+    )
+    system_prompt: str = Field(
+        default="You are a helpful AI assistant that helps users find and understand research papers.",  # noqa: E501
+        description="System prompt for the agent",
+    )
+=======
+    lakebase_project_id: str = Field(..., description="Lakebase project id")
     genie_space_id: str | None = Field(None, description="Genie space ID for MCP integration")
+    experiment_name: str = Field(None, description="Experiment name")
     system_prompt: str = Field(
         default="You are a helpful AI assistant that helps users find and understand research papers.",
-        description="System prompt for the agent"
+        description="System prompt for the agent",
     )
-    
+>>>>>>> upstream/main
+
     model_config = {"populate_by_name": True}
 
     @classmethod
@@ -39,7 +51,9 @@ class ProjectConfig(BaseModel):
             ProjectConfig instance
         """
         if env not in ["prd", "acc", "dev"]:
-            raise ValueError(f"Invalid environment: {env}. Expected 'prd', 'acc', or 'dev'")
+            raise ValueError(
+                f"Invalid environment: {env}. Expected 'prd', 'acc', or 'dev'"
+            )
 
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
@@ -47,13 +61,17 @@ class ProjectConfig(BaseModel):
         if env not in config_data:
             raise ValueError(f"Environment '{env}' not found in config file")
 
-        return cls(**config_data[env])
+        env_config = config_data[env]
+        if "system_prompt" in config_data:
+            env_config["system_prompt"] = config_data["system_prompt"]
+
+        return cls(**env_config)
 
     @property
     def schema(self) -> str:
         """Alias for db_schema for backward compatibility."""
         return self.db_schema
-    
+
     @property
     def full_schema_name(self) -> str:
         """Get fully qualified schema name."""
@@ -89,13 +107,15 @@ class ChunkingConfig(BaseModel):
     separator: str = Field("\n\n", description="Separator for chunking")
 
 
-def load_config(config_path: str = "project_config.yml", env: str = "dev") -> ProjectConfig:
+def load_config(
+    config_path: str = "project_config.yml", env: str = "dev"
+) -> ProjectConfig:
     """Load project configuration.
-    
+
     Args:
         config_path: Path to configuration file
         env: Environment name
-        
+
     Returns:
         ProjectConfig instance
     """
@@ -109,7 +129,7 @@ def load_config(config_path: str = "project_config.yml", env: str = "dev") -> Pr
                 config_path = str(candidate)
                 break
             current = current.parent
-    
+
     return ProjectConfig.from_yaml(config_path, env)
 
 
