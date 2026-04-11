@@ -23,7 +23,7 @@ from arxiv_curator.config import load_config
 # COMMAND ----------
 # databricks-connect reads ~/.databrickscfg automatically.
 # Pass the profile that matches your workspace if you have more than one.
-spark = DatabricksSession.builder.profile("dbc-e1714611-3243").getOrCreate()
+spark = DatabricksSession.builder.profile("dbc-e1714611-3243").serverless().getOrCreate()
 
 # Load config directly — no Spark widgets available outside Databricks
 cfg = load_config("project_config.yml", "dev")
